@@ -19,6 +19,7 @@ interface SearchOptions {
   includeRawContent?: boolean;
   includeDomains?: string[];
   excludeDomains?: string[];
+  extractContent?: boolean;
 }
 
 export async function POST(req: Request) {
@@ -36,19 +37,18 @@ export async function POST(req: Request) {
     // Default search options for more comprehensive results
     const defaultOptions: SearchOptions = {
       searchDepth: 'advanced',
-      maxResults: 8, // Increased from 5
+      maxResults: 8,
       topic: 'general',
       includeImages: false,
-      includeRawContent: true, // Get full content
+      includeRawContent: true,
+      extractContent: false
     };
 
     // Merge default options with user options
     const searchOptions = {
       ...defaultOptions,
       ...options,
-      // Force some options for better results
-      searchDepth: 'advanced', // Always use advanced search
-      includeAnswer: true, // Get AI-generated answer
+      includeAnswer: true,
     };
 
     // Special handling for news topic
@@ -58,6 +58,48 @@ export async function POST(req: Request) {
 
     // Perform search with options
     const response = await tvly.search(query, searchOptions);
+
+    // If extract content is enabled, get raw content from URLs
+    if (searchOptions.extractContent && response?.results?.length) {
+      const urls = response.results.map(result => result.url);
+      
+      const extractResponse = await fetch(new URL('/api/extract', req.url).toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          urls,
+          options: {
+            include_images: searchOptions.includeImages,
+            include_links: true,
+            include_title: true,
+            include_outline: true,
+            summarize: true
+          }
+        })
+      });
+
+      if (extractResponse.ok) {
+        const extractedContent = await extractResponse.json();
+        
+        // Merge extracted content with search results
+        response.results = response.results.map(result => {
+          const extracted = extractedContent.results.find(
+            (ext: any) => ext.url === result.url && ext.success
+          );
+          
+          if (extracted) {
+            return {
+              ...result,
+              content: extracted.content,
+              rawContent: extracted.content,
+              summary: extracted.summary,
+              outline: extracted.outline
+            };
+          }
+          return result;
+        });
+      }
+    }
 
     // Validate and format results
     if (!response?.results?.length) {
@@ -102,7 +144,8 @@ export async function POST(req: Request) {
       responseTime: response.responseTime,
       topic: searchOptions.topic,
       searchDepth: searchOptions.searchDepth,
-      answer: response.answer, // Include Tavily's AI answer
+      answer: response.answer,
+      extractedContent: searchOptions.extractContent
     });
   } catch (error) {
     console.error("Tavily search error:", error);

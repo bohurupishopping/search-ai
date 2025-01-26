@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Search, Loader2, Settings2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from './ui/button';
@@ -29,7 +29,13 @@ export const SearchInput = ({ onSubmit, isLoading, className }: SearchInputProps
     topic: 'general'
   });
   const [isFocused, setIsFocused] = useState(false);
+  const [isFixed, setIsFixed] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Effect to handle fixing the input to footer when loading
+  useEffect(() => {
+    setIsFixed(isLoading || false);
+  }, [isLoading]);
 
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -40,9 +46,15 @@ export const SearchInput = ({ onSubmit, isLoading, className }: SearchInputProps
 
   const adjustHeight = useCallback(() => {
     if (!inputRef.current) return;
+    
+    // Reset height temporarily to get proper scrollHeight
     inputRef.current.style.height = '44px';
+    
+    // Get the scroll height and calculate new height
     const scrollHeight = inputRef.current.scrollHeight;
     const newHeight = Math.min(Math.max(44, scrollHeight), 200);
+    
+    // Only adjust height if content actually needs more space
     if (scrollHeight > 44) {
       inputRef.current.style.height = `${newHeight}px`;
       inputRef.current.style.overflowY = newHeight >= 200 ? 'auto' : 'hidden';
@@ -55,9 +67,21 @@ export const SearchInput = ({ onSubmit, isLoading, className }: SearchInputProps
   return (
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={{ 
+        opacity: 1, 
+        y: 0,
+        position: isFixed ? 'fixed' : 'relative',
+        bottom: isFixed ? 0 : 'auto',
+        left: isFixed ? 0 : 'auto',
+        right: isFixed ? 0 : 'auto',
+        zIndex: isFixed ? 50 : 'auto',
+      }}
       transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
-      className={cn("w-full max-w-4xl mx-auto px-2", className)}
+      className={cn(
+        "w-full max-w-4xl mx-auto px-2",
+        isFixed && "pb-6 bg-gradient-to-t from-white via-white to-transparent dark:from-gray-900 dark:via-gray-900",
+        className
+      )}
     >
       <motion.form
         onSubmit={handleSubmit}

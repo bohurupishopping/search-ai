@@ -1,4 +1,7 @@
-import React from 'react';
+import React, { memo } from 'react';
+import { motion } from 'framer-motion';
+import { ExternalLink } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Source {
   title: string;
@@ -10,31 +13,71 @@ interface SourcesProps {
   sources: Source[];
 }
 
-export default function Sources({ sources }: SourcesProps) {
+const SourceCard = memo(({ source, idx }: { source: Source; idx: number }) => {
+  const hostname = new URL(source.url).hostname;
+
   return (
-    <div className="mt-4 space-y-2">
-      <h3 className="text-sm font-medium text-gray-500">Sources:</h3>
-      <div className="space-y-1">
-        {sources.map((source, index) => (
-          <div key={index} className="flex items-center text-sm">
-            <div className="w-4 h-4 flex items-center justify-center mr-2 text-xs text-gray-500">
-              {index + 1}.
-            </div>
-            <a
-              href={source.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-800 hover:underline truncate"
-              title={source.title}
-            >
-              {source.title}
-              <span className="ml-2 text-gray-400 text-xs">
-                (relevance: {Math.round(source.score * 100)}%)
-              </span>
-            </a>
+    <motion.a
+      href={source.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group relative bg-white/50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700 rounded-lg p-2 hover:bg-white dark:hover:bg-neutral-800 hover:shadow-sm transition-all"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, delay: idx * 0.05 }}
+    >
+      <div className="flex items-center gap-2">
+        <div className="flex-shrink-0 w-5 h-5 rounded bg-neutral-100 dark:bg-neutral-700 flex items-center justify-center overflow-hidden">
+          <img
+            src={`https://www.google.com/s2/favicons?domain=${hostname}&sz=32`}
+            alt=""
+            className="w-3 h-3"
+            onError={(e) => {
+              e.currentTarget.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5z'%3E%3C/path%3E%3Cpolyline points='10 2 10 22'%3E%3C/polyline%3E%3C/svg%3E";
+            }}
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-xs font-medium text-neutral-900 dark:text-neutral-100 truncate group-hover:text-blue-600 dark:group-hover:text-blue-400">
+            {source.title}
+          </h3>
+          <div className="flex items-center gap-1 text-[10px] text-neutral-500">
+            <span className="truncate">{hostname}</span>
+            <span className="text-neutral-300 dark:text-neutral-600">•</span>
+            <span className="text-blue-600 dark:text-blue-400 font-medium">
+              {Math.round(source.score * 100)}%
+            </span>
           </div>
-        ))}
+        </div>
       </div>
-    </div>
+      {/* Relevance indicator */}
+      <div 
+        className="absolute bottom-0 left-0 h-0.5 bg-blue-500/30"
+        style={{ width: `${Math.round(source.score * 100)}%` }}
+      />
+    </motion.a>
   );
-} 
+});
+
+SourceCard.displayName = 'SourceCard';
+
+const Sources = memo(({ sources }: SourcesProps) => {
+  if (!sources.length) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+      className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2"
+    >
+      {sources.map((source, idx) => (
+        <SourceCard key={idx} source={source} idx={idx} />
+      ))}
+    </motion.div>
+  );
+});
+
+Sources.displayName = 'Sources';
+
+export default Sources; 
