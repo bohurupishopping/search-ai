@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { SearchInput } from '@/components/SearchInput';
 import Message from "@/components/Message";
 import { WelcomeSection } from '@/components/WelcomeSection';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { Search } from 'lucide-react';
+import { Search, PlusCircle } from 'lucide-react';
 import { LoadingAnimation } from '@/components/LoadingAnimation';
 
 interface SearchOptions {
@@ -14,6 +14,8 @@ interface SearchOptions {
   maxResults: number;
   topic: 'general' | 'news';
   timeRange?: 'day' | 'week' | 'month' | 'year';
+  includeImages: boolean;
+  includeImageDescriptions: boolean;
 }
 
 interface Message {
@@ -23,6 +25,10 @@ interface Message {
     title: string;
     url: string;
     score: number;
+  }>;
+  images?: Array<{
+    url: string;
+    description?: string;
   }>;
 }
 
@@ -35,24 +41,87 @@ export default function Home() {
     searchDepth: 'advanced',
     maxResults: 5,
     topic: 'general',
+    includeImages: true,
+    includeImageDescriptions: true
   });
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  // URL validation helper
+  const isValidUrl = (url: string): boolean => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
-  const handleSearch = async (query: string, options: SearchOptions) => {
+  // Extract content handler
+  const handleExtract = useCallback(async (url: string) => {
+    if (!url || isLoading) return;
+
+    setIsLoading(true);
+    setMessages(prev => [
+      ...prev,
+      { type: "user", content: `Extract content from: ${url}` },
+      { type: "assistant", content: "" }
+    ]);
+
+    try {
+      const extractResponse = await fetch("/api/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: [url] }),
+      });
+
+      if (!extractResponse.ok) {
+        throw new Error("Extract failed: " + await extractResponse.text());
+      }
+
+      const extractResult = await extractResponse.json();
+      const result = extractResult.results[0];
+
+      if (result.success) {
+        setMessages(prev => [
+          ...prev.slice(0, -1),
+          {
+            type: "assistant",
+            content: `# Content Extracted Successfully\n\n${result.content}\n\n## Summary\n${result.summary || 'No summary available'}`,
+            images: result.images
+          }
+        ]);
+      } else {
+        throw new Error(result.error || "Failed to extract content");
+      }
+    } catch (error) {
+      setMessages(prev => [
+        ...prev.slice(0, -1),
+        {
+          type: "assistant",
+          content: `Error extracting content: ${error instanceof Error ? error.message : "Unknown error"}`
+        }
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading]);
+
+  // Handle search function
+  const handleSearch = useCallback(async (query: string, options: SearchOptions) => {
     if (!query.trim() || isLoading) return;
 
     // Hide welcome section when search starts
     setShowWelcome(false);
+    setIsLoading(true);
 
     // Add user message
-    setMessages(prev => [...prev, { type: "user", content: query }]);
-    setIsLoading(true);
+    setMessages(prev => [
+      ...prev, 
+      { type: "user", content: query },
+      // Add an empty assistant message immediately to show loading state
+      { type: "assistant", content: "" }
+    ]);
     
     try {
       // First, get search results from Tavily
@@ -61,7 +130,11 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           query,
-          options
+          options: {
+            ...options,
+            includeImages: true,
+            includeImageDescriptions: true
+          }
         }),
       });
 
@@ -93,13 +166,6 @@ export default function Home() {
         throw new Error("Failed to initialize stream reader");
       }
 
-      // Add initial assistant message
-      setMessages(prev => [...prev, { 
-        type: "assistant", 
-        content: "",
-        sources: searchResults.results
-      }]);
-
       let assistantMessage = "";
       
       // Process the stream
@@ -116,14 +182,15 @@ export default function Home() {
           { 
             type: "assistant", 
             content: assistantMessage,
-            sources: searchResults.results
+            sources: searchResults.results,
+            images: searchResults.images
           }
         ]);
       }
     } catch (error) {
       console.error("Error:", error);
       setMessages(prev => [
-        ...prev,
+        ...prev.slice(0, -1), // Remove the loading message
         { 
           type: "assistant", 
           content: error instanceof Error 
@@ -135,7 +202,62 @@ export default function Home() {
       setIsLoading(false);
       setQuestion("");
     }
-  };
+  }, [isLoading]);
+
+  // Handle URL-based search and extract
+  useEffect(() => {
+    const handleUrlPatterns = async () => {
+      const hash = window.location.hash;
+
+      // Handle search pattern from hash
+      if (hash.startsWith('#search=')) {
+        const searchTerm = decodeURIComponent(hash.slice(7));
+        if (searchTerm && searchTerm !== 'undefined') {
+          setShowWelcome(false);
+          await handleSearch(searchTerm, searchOptions);
+          // Clean up URL after processing
+          window.history.replaceState({}, '', '/');
+        }
+      }
+      // Handle extract pattern
+      else if (hash.startsWith('#extract=')) {
+        const extractUrl = decodeURIComponent(hash.slice(8)); // Fix: changed from 9 to 8
+        if (extractUrl && extractUrl !== 'undefined' && isValidUrl(extractUrl)) {
+          setShowWelcome(false);
+          await handleExtract(extractUrl);
+          // Clean up URL after processing
+          window.history.replaceState({}, '', '/');
+        }
+      }
+    };
+
+    // Initial check for URL patterns
+    handleUrlPatterns();
+
+    // Add event listener for hash changes
+    const handleHashChange = () => {
+      handleUrlPatterns();
+    };
+    window.addEventListener('hashchange', handleHashChange);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, [handleSearch, handleExtract, searchOptions]);
+
+  // Reset chat function
+  const resetChat = useCallback(() => {
+    setMessages([]);
+    setShowWelcome(true);
+    setQuestion("");
+    setIsLoading(false);
+  }, []);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const handleSuggestionClick = (prompt: string) => {
     handleSearch(prompt, searchOptions);
@@ -143,6 +265,29 @@ export default function Home() {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-neutral-50 dark:bg-neutral-900">
+      {/* Header with New Chat button */}
+      <div className="flex-none w-full z-50 px-4 py-2 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+        <div className="container max-w-screen-2xl mx-auto">
+          <div className="max-w-4xl mx-auto flex justify-between items-center">
+            <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">AI Search Assistant</h1>
+            <button
+              onClick={resetChat}
+              className={cn(
+                "px-4 py-2 rounded-lg",
+                "bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700",
+                "text-sm font-medium text-neutral-900 dark:text-neutral-100",
+                "transition-colors duration-200",
+                "flex items-center gap-2",
+                "border border-neutral-200 dark:border-neutral-700"
+              )}
+            >
+              <PlusCircle className="w-4 h-4" />
+              New Chat
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Welcome Section (includes Header) */}
       <AnimatePresence>
         {showWelcome && (

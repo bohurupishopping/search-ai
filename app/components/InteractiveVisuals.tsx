@@ -90,7 +90,7 @@ export const InteractiveVisuals = memo(({ data, type }: InteractiveVisualsProps)
       }
 
       if (chartData.type === 'bar') {
-        const data = Object.groupBy(chartData.elements, ({ group }) => group);
+        const data = Object.groupBy(chartData.elements, ({ group }) => group ?? 'default');
         const series = Object.entries(data).map(([group, elements]) => ({
           name: group,
           type: 'bar',
@@ -213,4 +213,4 @@ export const InteractiveVisuals = memo(({ data, type }: InteractiveVisualsProps)
 
 InteractiveVisuals.displayName = 'InteractiveVisuals';
 
-export default InteractiveVisuals; 
+export default InteractiveVisuals;

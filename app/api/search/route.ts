@@ -16,10 +16,16 @@ interface SearchOptions {
   topic?: 'general' | 'news';
   timeRange?: 'day' | 'week' | 'month' | 'year';
   includeImages?: boolean;
+  includeImageDescriptions?: boolean;
   includeRawContent?: boolean;
   includeDomains?: string[];
   excludeDomains?: string[];
   extractContent?: boolean;
+}
+
+interface TavilyImage {
+  url: string;
+  description?: string;
 }
 
 export async function POST(req: Request) {
@@ -39,7 +45,8 @@ export async function POST(req: Request) {
       searchDepth: 'advanced',
       maxResults: 8,
       topic: 'general',
-      includeImages: false,
+      includeImages: true,
+      includeImageDescriptions: true,
       includeRawContent: true,
       extractContent: false
     };
@@ -53,11 +60,17 @@ export async function POST(req: Request) {
 
     // Special handling for news topic
     if (searchOptions.topic === 'news') {
-      searchOptions.timeRange = searchOptions.timeRange || 'month'; // Default to last month for more context
+      searchOptions.timeRange = searchOptions.timeRange || 'month';
     }
 
     // Perform search with options
     const response = await tvly.search(query, searchOptions);
+
+    // Process images if they exist
+    const processedImages = response.images?.map((image: TavilyImage) => ({
+      url: image.url,
+      description: image.description || undefined
+    })) || [];
 
     // If extract content is enabled, get raw content from URLs
     if (searchOptions.extractContent && response?.results?.length) {
@@ -69,7 +82,7 @@ export async function POST(req: Request) {
         body: JSON.stringify({
           urls,
           options: {
-            include_images: searchOptions.includeImages,
+            include_images: true,
             include_links: true,
             include_title: true,
             include_outline: true,
@@ -88,6 +101,16 @@ export async function POST(req: Request) {
           );
           
           if (extracted) {
+            // Add any extracted images to our images array
+            if (extracted.images?.length) {
+              processedImages.push(
+                ...extracted.images.map((url: string) => ({
+                  url,
+                  description: result.title
+                }))
+              );
+            }
+
             return {
               ...result,
               content: extracted.content,
@@ -109,21 +132,19 @@ export async function POST(req: Request) {
       );
     }
 
-    // Format and clean the results, keeping more content
+    // Format and clean the results
     const cleanResults = response.results
       .map(result => ({
         title: result.title || "",
         url: result.url || "",
         content: result.content?.trim() || "",
-        rawContent: result.rawContent?.trim() || "", // Include raw content if available
+        rawContent: result.rawContent?.trim() || "",
         score: result.score || 0,
         publishedDate: result.publishedDate,
       }))
       .filter(result => result.content && result.title)
-      // Ensure minimum content length
       .map(result => ({
         ...result,
-        // Use raw content if regular content is too short
         content: result.content.length < 200 && result.rawContent 
           ? result.rawContent.slice(0, 1000) 
           : result.content
@@ -131,16 +152,14 @@ export async function POST(req: Request) {
 
     // Sort results by score and relevance
     cleanResults.sort((a, b) => {
-      // Prioritize results with higher scores
       const scoreDiff = (b.score || 0) - (a.score || 0);
       if (Math.abs(scoreDiff) > 0.1) return scoreDiff;
-      
-      // For similar scores, prefer longer content
       return b.content.length - a.content.length;
     });
 
     return NextResponse.json({
       results: cleanResults,
+      images: processedImages,
       responseTime: response.responseTime,
       topic: searchOptions.topic,
       searchDepth: searchOptions.searchDepth,

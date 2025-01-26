@@ -9,6 +9,7 @@ import { useTheme } from 'next-themes';
 import { Copy, Check, ExternalLink } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import Sources from './Sources';
+import ImageGallery from './ImageGallery';
 
 interface MessageProps {
   content: string;
@@ -17,6 +18,10 @@ interface MessageProps {
     title: string;
     url: string;
     score: number;
+  }>;
+  images?: Array<{
+    url: string;
+    description?: string;
   }>;
 }
 
@@ -76,7 +81,7 @@ const CodeBlock = memo(({ language, children }: { language?: string; children: s
 
 CodeBlock.displayName = 'CodeBlock';
 
-const Message = memo(({ content, type, sources }: MessageProps) => {
+const Message = memo(({ content, type, sources, images }: MessageProps) => {
   return (
     <AnimatePresence mode="wait">
       <motion.div
@@ -85,7 +90,7 @@ const Message = memo(({ content, type, sources }: MessageProps) => {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ duration: 0.3 }}
-        className="space-y-4"
+        className="space-y-6"
       >
         {/* Message Content */}
         <motion.div 
@@ -189,12 +194,25 @@ const Message = memo(({ content, type, sources }: MessageProps) => {
           </ReactMarkdown>
         </motion.div>
 
-        {/* Sources Section - Shown below content */}
-        {type === 'assistant' && sources && sources.length > 0 && (
+        {/* Image Gallery Section - Shown before sources */}
+        {type === 'assistant' && images && images.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.3 }}
+            className="mt-6"
+          >
+            <ImageGallery images={images} />
+          </motion.div>
+        )}
+
+        {/* Sources Section */}
+        {type === 'assistant' && sources && sources.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.4 }}
+            className="mt-6"
           >
             <Sources sources={sources} />
           </motion.div>

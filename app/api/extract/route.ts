@@ -31,7 +31,10 @@ interface TavilyExtractResult {
     summary?: string;
     outline?: string[];
     links?: string[];
-    images?: string[];
+    images?: Array<{
+      url: string;
+      description?: string;
+    }>;
   }[];
   failedResults?: {
     url: string;
@@ -48,7 +51,10 @@ interface ProcessedExtractResult {
   summary?: string;
   outline?: string[];
   links?: string[];
-  images?: string[];
+  images?: Array<{
+    url: string;
+    description?: string;
+  }>;
   success: boolean;
   error?: string;
 }
@@ -67,7 +73,7 @@ export async function POST(req: Request) {
 
     // Default extract options for better results
     const defaultOptions: ExtractOptions = {
-      include_images: false,
+      include_images: true,
       include_links: true,
       include_html: false,
       include_title: true,
@@ -101,7 +107,10 @@ export async function POST(req: Request) {
           summary: extractedResult.summary,
           outline: extractedResult.outline,
           links: extractedResult.links,
-          images: extractedResult.images,
+          images: extractedResult.images?.map(img => ({
+            url: img.url,
+            description: img.description || extractedResult.title
+          })),
           success: true
         };
       } catch (error) {
@@ -116,8 +125,14 @@ export async function POST(req: Request) {
     // Wait for all extractions to complete
     const results = await Promise.all(extractPromises);
 
+    // Collect all images from successful extractions
+    const allImages = results
+      .filter(r => r.success && r.images?.length)
+      .flatMap(r => r.images || []);
+
     return NextResponse.json({
       results,
+      images: allImages,
       totalProcessed: urls.length,
       successfulExtractions: results.filter(r => r.success).length
     });
