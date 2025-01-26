@@ -1,101 +1,161 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { Header } from '@/components/Header';
+import { SearchInput } from '@/components/SearchInput';
+import Message from "@/components/Message";
+
+interface SearchOptions {
+  searchDepth: 'basic' | 'advanced';
+  maxResults: number;
+  topic: 'general' | 'news';
+  timeRange?: 'day' | 'week' | 'month' | 'year';
+}
+
+interface Message {
+  type: 'user' | 'assistant';
+  content: string;
+  sources?: Array<{
+    title: string;
+    url: string;
+    score: number;
+  }>;
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [question, setQuestion] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [searchOptions, setSearchOptions] = useState<SearchOptions>({
+    searchDepth: 'advanced',
+    maxResults: 5,
+    topic: 'general',
+  });
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleSearch = async (query: string, options: SearchOptions) => {
+    if (!query.trim() || isLoading) return;
+
+    // Add user message
+    setMessages(prev => [...prev, { type: "user", content: query }]);
+    setIsLoading(true);
+    
+    try {
+      // First, get search results from Tavily
+      const searchResponse = await fetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          query,
+          options
+        }),
+      });
+
+      if (!searchResponse.ok) {
+        throw new Error("Search failed: " + await searchResponse.text());
+      }
+
+      const searchResults = await searchResponse.json();
+
+      // Then, stream the AI completion
+      const completionResponse = await fetch("/api/completion", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          query,
+          searchResults,
+        }),
+      });
+
+      if (!completionResponse.ok) {
+        throw new Error("Completion failed: " + await completionResponse.text());
+      }
+
+      // Initialize streaming
+      const reader = completionResponse.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (!reader) {
+        throw new Error("Failed to initialize stream reader");
+      }
+
+      // Add initial assistant message
+      setMessages(prev => [...prev, { 
+        type: "assistant", 
+        content: "",
+        sources: searchResults.results
+      }]);
+
+      let assistantMessage = "";
+      
+      // Process the stream
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        assistantMessage += chunk;
+
+        // Update the last message (which is the assistant's message)
+        setMessages(prev => [
+          ...prev.slice(0, -1),
+          { 
+            type: "assistant", 
+            content: assistantMessage,
+            sources: searchResults.results
+          }
+        ]);
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      setMessages(prev => [
+        ...prev,
+        { 
+          type: "assistant", 
+          content: error instanceof Error 
+            ? `Sorry, I encountered an error: ${error.message}`
+            : "Sorry, I encountered an unknown error while processing your request." 
+        }
+      ]);
+    } finally {
+      setIsLoading(false);
+      setQuestion("");
+    }
+  };
+
+  return (
+    <div className="flex min-h-screen flex-col">
+      <Header />
+      
+      <main className="flex-1 py-12">
+        <div className="container max-w-screen-2xl">
+          <div className="mx-auto max-w-4xl space-y-8">
+            <SearchInput 
+              onSubmit={handleSearch}
+              isLoading={isLoading}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+            
+            {/* Messages section */}
+            <div className="space-y-4">
+              {messages.map((message, index) => (
+                <Message
+                  key={index}
+                  content={message.content}
+                  type={message.type}
+                  sources={message.sources}
+                />
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+          </div>
         </div>
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
