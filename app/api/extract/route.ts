@@ -1,7 +1,9 @@
 import { tavily } from "@tavily/core";
 import { NextResponse } from "next/server";
 
-export const runtime = "edge";
+// Change from edge to node runtime
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 if (!process.env.TAVILY_API_KEY) {
   throw new Error("TAVILY_API_KEY is not configured");

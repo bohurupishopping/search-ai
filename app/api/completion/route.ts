@@ -1,7 +1,8 @@
 import Groq from "groq-sdk";
 import { NextResponse } from "next/server";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // Validate API key
 if (!process.env.GROQ_API_KEY) {
